@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   color-scheme: light;
   --paper: #f7f5ee;
   --panel: #fffdf8;
@@ -389,4 +389,16 @@ textarea:focus {
   .item-actions {
     justify-content: flex-end;
   }
+}
+
+.app-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.app-version {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.82;
 }

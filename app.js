@@ -1,6 +1,6 @@
-﻿// 이 키는 앱 업데이트 후에도 기존 단어를 유지하기 위해 변경하지 않습니다.
+// 이 키는 앱 업데이트 후에도 기존 단어를 유지하기 위해 변경하지 않습니다.
 const STORAGE_KEY = "azerbaijani-words-memorization-v1";
-const APP_VERSION = "2026.06.22.1";
+const APP_VERSION = "2026.06.23.1";
 
 const state = {
   words: [],
@@ -11,6 +11,7 @@ const state = {
 
 const elements = {
   summaryText: document.querySelector("#summaryText"),
+  appVersion: document.querySelector("#appVersion"),
   wordForm: document.querySelector("#wordForm"),
   wordInput: document.querySelector("#wordInput"),
   meaningInput: document.querySelector("#meaningInput"),
@@ -88,6 +89,7 @@ function escapeHtml(value) {
 
 function renderSummary() {
   elements.summaryText.textContent = `저장된 단어 ${state.words.length}개`;
+  elements.appVersion.textContent = `v${APP_VERSION}`;
 }
 
 function renderList() {
