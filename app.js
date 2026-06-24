@@ -1,12 +1,22 @@
 // 이 키는 앱 업데이트 후에도 기존 단어를 유지하기 위해 변경하지 않습니다.
 const STORAGE_KEY = "azerbaijani-words-memorization-v1";
-const APP_VERSION = "2026.06.23.1";
+const APP_VERSION = "2026.06.24.1";
+
+const azeriCollator = new Intl.Collator("az", {
+  usage: "sort",
+  sensitivity: "base",
+});
 
 const state = {
   words: [],
   editingId: null,
   currentQuestion: null,
   answerVisible: false,
+  sortMode: "recent",
+  studyQueue: [],
+  studyIndex: 0,
+  completedCycles: 0,
+  cycleComplete: false,
 };
 
 const elements = {
@@ -21,6 +31,7 @@ const elements = {
   wordList: document.querySelector("#wordList"),
   emptyText: document.querySelector("#emptyText"),
   searchInput: document.querySelector("#searchInput"),
+  sortSelect: document.querySelector("#sortSelect"),
   studyButton: document.querySelector("#studyButton"),
   answerButton: document.querySelector("#answerButton"),
   quizLabel: document.querySelector("#quizLabel"),
@@ -99,6 +110,10 @@ function renderList() {
       || item.meaning.toLocaleLowerCase("ko").includes(query);
   });
 
+  if (state.sortMode === "pronunciation") {
+    filteredWords.sort((a, b) => azeriCollator.compare(a.word, b.word));
+  }
+
   elements.wordList.innerHTML = filteredWords.map((item) => `
     <li class="word-item" data-id="${escapeHtml(item.id)}">
       <div class="word-main">
@@ -136,6 +151,10 @@ function renderStudyControls() {
     return;
   }
 
+  if (state.cycleComplete) {
+    return;
+  }
+
   if (!state.currentQuestion) {
     elements.quizLabel.textContent = "문제";
     elements.quizText.textContent = "시작을 누르면 무작위 문제가 나옵니다.";
@@ -143,6 +162,49 @@ function renderStudyControls() {
     elements.studyModeText.textContent = "대기 중";
     elements.studyButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7V5Z"/></svg>시작';
   }
+}
+
+function resetStudySession() {
+  state.currentQuestion = null;
+  state.answerVisible = false;
+  state.studyQueue = [];
+  state.studyIndex = 0;
+  state.completedCycles = 0;
+  state.cycleComplete = false;
+}
+
+function shuffleWordIds() {
+  const ids = state.words.map((item) => item.id);
+
+  for (let index = ids.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    [ids[index], ids[randomIndex]] = [ids[randomIndex], ids[index]];
+  }
+
+  return ids;
+}
+
+function startNextCycle() {
+  state.studyQueue = shuffleWordIds();
+  state.studyIndex = 0;
+  state.currentQuestion = null;
+  state.answerVisible = false;
+  state.cycleComplete = false;
+}
+
+function showCycleComplete() {
+  state.completedCycles += 1;
+  state.cycleComplete = true;
+  state.currentQuestion = null;
+  state.answerVisible = false;
+
+  elements.quizLabel.textContent = `${state.completedCycles}회독 완료`;
+  elements.quizText.textContent = `목록의 ${state.words.length}개 단어를 모두 확인했습니다.`;
+  elements.answerText.textContent = `다음을 누르면 단어를 다시 섞어 ${state.completedCycles + 1}회독을 시작합니다.`;
+  elements.answerText.hidden = false;
+  elements.studyModeText.textContent = `${state.completedCycles}회독 완료`;
+  elements.studyButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>다음';
+  elements.answerButton.disabled = true;
 }
 
 function render() {
@@ -192,6 +254,7 @@ function upsertWord(event) {
   }
 
   saveWords();
+  resetStudySession();
   clearForm();
   render();
 }
@@ -217,10 +280,7 @@ function deleteWord(id) {
   if (!confirmed) return;
 
   state.words = state.words.filter((item) => item.id !== id);
-  if (state.currentQuestion && state.currentQuestion.id === id) {
-    state.currentQuestion = null;
-    state.answerVisible = false;
-  }
+  resetStudySession();
 
   saveWords();
   clearForm();
@@ -231,7 +291,22 @@ function deleteWord(id) {
 function pickQuestion() {
   if (state.words.length === 0) return;
 
-  const item = state.words[Math.floor(Math.random() * state.words.length)];
+  if (state.cycleComplete || state.studyQueue.length === 0) {
+    startNextCycle();
+  } else if (state.currentQuestion && state.studyIndex >= state.studyQueue.length) {
+    showCycleComplete();
+    return;
+  }
+
+  const itemId = state.studyQueue[state.studyIndex];
+  const item = state.words.find((word) => word.id === itemId);
+  if (!item) {
+    startNextCycle();
+    pickQuestion();
+    return;
+  }
+
+  state.studyIndex += 1;
   const askWord = Math.random() < 0.5;
 
   state.currentQuestion = {
@@ -242,11 +317,11 @@ function pickQuestion() {
   };
   state.answerVisible = false;
 
-  elements.quizLabel.textContent = state.currentQuestion.label;
+  elements.quizLabel.textContent = `${state.studyIndex} / ${state.studyQueue.length} · ${state.currentQuestion.label}`;
   elements.quizText.textContent = state.currentQuestion.prompt;
   elements.answerText.hidden = true;
   elements.answerText.textContent = "";
-  elements.studyModeText.textContent = "학습 중";
+  elements.studyModeText.textContent = `${state.completedCycles + 1}회독 학습 중`;
   elements.studyButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>다음';
   elements.answerButton.disabled = false;
 }
@@ -295,6 +370,7 @@ function importWords(file) {
       state.words = Array.from(byWord.values());
 
       saveWords();
+      resetStudySession();
       render();
       showToast(`${imported.length}개 단어를 가져왔습니다.`);
     } catch {
@@ -373,6 +449,10 @@ elements.cancelEditButton.addEventListener("click", () => {
 });
 elements.wordList.addEventListener("click", handleListClick);
 elements.searchInput.addEventListener("input", renderList);
+elements.sortSelect.addEventListener("change", () => {
+  state.sortMode = elements.sortSelect.value;
+  renderList();
+});
 elements.studyButton.addEventListener("click", pickQuestion);
 elements.answerButton.addEventListener("click", showAnswer);
 elements.exportButton.addEventListener("click", exportWords);
