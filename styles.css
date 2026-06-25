@@ -279,6 +279,24 @@ select:focus {
   overflow-wrap: anywhere;
 }
 
+.answer-text > span {
+  display: block;
+}
+
+.answer-prefix {
+  display: inline;
+}
+
+.answer-example,
+.word-example {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.answer-example {
+  margin-top: 6px;
+}
+
 .word-list {
   list-style: none;
   margin: 12px 0 0;
