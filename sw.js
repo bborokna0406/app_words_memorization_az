@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "azerbaijani-words-memorization-";
-const CACHE_NAME = `${CACHE_PREFIX}app-shell-v9`;
+const CACHE_NAME = `${CACHE_PREFIX}app-shell-v10`;
 const APP_SHELL = [
   "./",
   "./index.html",
