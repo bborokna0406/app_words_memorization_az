@@ -40,11 +40,13 @@
         <form id="wordForm" class="word-form">
           <label>
             <span>아제르바이잔어</span>
-            <input id="wordInput" type="text" lang="az" autocomplete="off" maxlength="100" required>
+            <input id="wordInput" type="text" lang="az" autocomplete="off" maxlength="100" aria-describedby="wordDuplicate" required>
+            <span id="wordDuplicate" class="duplicate-message" role="status" hidden>&#51060;&#48120; &#51080;&#45716; &#45800;&#50612;&#51077;&#45768;&#45796;.</span>
           </label>
           <label>
             <span>한국어 뜻</span>
-            <textarea id="meaningInput" rows="3" maxlength="200" required></textarea>
+            <textarea id="meaningInput" rows="3" maxlength="200" aria-describedby="meaningDuplicate" required></textarea>
+            <span id="meaningDuplicate" class="duplicate-message" role="status" hidden>&#51060;&#48120; &#51080;&#45716; &#46907;&#51077;&#45768;&#45796;.</span>
           </label>
           <label>
             <span>&#50696;&#47928; (&#49440;&#53469;)</span>
@@ -99,6 +101,7 @@
 
   <input id="fileInput" type="file" accept="application/json,.json" hidden>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="word-store.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

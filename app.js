@@ -1,6 +1,9 @@
 // 이 키는 앱 업데이트 후에도 기존 단어를 유지하기 위해 변경하지 않습니다.
 const STORAGE_KEY = "azerbaijani-words-memorization-v1";
-const APP_VERSION = "2026.06.26.2";
+const APP_VERSION = "2026.06.30.1";
+
+let wordStore = null;
+const duplicateIndexes = {};
 
 const azeriCollator = new Intl.Collator("az", {
   usage: "sort",
@@ -26,6 +29,8 @@ const elements = {
   wordInput: document.querySelector("#wordInput"),
   meaningInput: document.querySelector("#meaningInput"),
   exampleInput: document.querySelector("#exampleInput"),
+  wordDuplicate: document.querySelector("#wordDuplicate"),
+  meaningDuplicate: document.querySelector("#meaningDuplicate"),
   saveButton: document.querySelector("#saveButton"),
   cancelEditButton: document.querySelector("#cancelEditButton"),
   editBadge: document.querySelector("#editBadge"),
@@ -56,6 +61,10 @@ function normalizeText(value) {
   return String(value || "").trim();
 }
 
+function normalizeForComparison(value) {
+  return normalizeText(value).normalize("NFKC").replace(/\s+/g, " ").toLocaleLowerCase("az");
+}
+
 function normalizeWordItem(item) {
   return {
     id: item.id || createId(),
@@ -66,20 +75,60 @@ function normalizeWordItem(item) {
   };
 }
 
-function loadWords() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    state.words = saved
-      ? JSON.parse(saved).map(normalizeWordItem).filter((item) => item.word && item.meaning)
-      : [];
-  } catch {
-    state.words = [];
-    showToast("저장된 데이터를 읽지 못했습니다.");
-  }
+function isCompleteWord(item) {
+  return Boolean(item.word && item.meaning);
 }
 
-function saveWords() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.words));
+function duplicateFields() {
+  return [
+    { key: "word", input: elements.wordInput, message: elements.wordDuplicate },
+    { key: "meaning", input: elements.meaningInput, message: elements.meaningDuplicate },
+  ];
+}
+
+function rebuildDuplicateIndexes() {
+  duplicateFields().forEach(({ key }) => {
+    const index = new Map();
+    state.words.forEach((item) => {
+      const value = normalizeForComparison(item[key]);
+      if (!value) return;
+      if (!index.has(value)) index.set(value, new Set());
+      index.get(value).add(item.id);
+    });
+    duplicateIndexes[key] = index;
+  });
+}
+
+function updateDuplicateWarnings() {
+  duplicateFields().forEach(({ key, input, message }) => {
+    const value = normalizeForComparison(input.value);
+    const ids = duplicateIndexes[key]?.get(value);
+    const isDuplicate = Boolean(value && ids && Array.from(ids).some((id) => id !== state.editingId));
+    input.classList.toggle("is-duplicate", isDuplicate);
+    message.hidden = !isDuplicate;
+    if (isDuplicate) input.setAttribute("aria-invalid", "true");
+    else input.removeAttribute("aria-invalid");
+  });
+}
+
+async function loadWords() {
+  wordStore = createWordStore({
+    storageKey: STORAGE_KEY,
+    normalizeItem: normalizeWordItem,
+    isValidItem: isCompleteWord,
+    normalizeForComparison,
+    indexFields: ["word", "meaning"],
+  });
+  const result = await wordStore.initialize();
+  state.words = result.words;
+  rebuildDuplicateIndexes();
+  if (result.migrated) showToast("기존 단어를 안전하게 이전했습니다.");
+}
+
+async function saveWords() {
+  await wordStore.requestPersistence();
+  await wordStore.replaceAll(state.words);
+  rebuildDuplicateIndexes();
 }
 
 function showToast(message) {
@@ -234,9 +283,10 @@ function clearForm() {
   elements.editBadge.hidden = true;
   elements.cancelEditButton.hidden = true;
   elements.saveButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>저장';
+  updateDuplicateWarnings();
 }
 
-function upsertWord(event) {
+async function upsertWord(event) {
   event.preventDefault();
 
   const word = normalizeText(elements.wordInput.value);
@@ -249,31 +299,41 @@ function upsertWord(event) {
   }
 
   const duplicate = state.words.find((item) => {
-    return item.word.toLocaleLowerCase("az") === word.toLocaleLowerCase("az")
+    return normalizeForComparison(item.word) === normalizeForComparison(word)
       && item.id !== state.editingId;
   });
+
+  const previousWords = state.words.map((item) => ({ ...item }));
+  let successMessage = "단어를 저장했습니다.";
 
   if (duplicate) {
     duplicate.meaning = meaning;
     duplicate.example = example;
-    showToast("이미 있는 단어의 뜻을 수정했습니다.");
+    successMessage = "이미 있는 단어의 뜻을 수정했습니다.";
   } else if (state.editingId) {
     const target = state.words.find((item) => item.id === state.editingId);
     if (target) {
       target.word = word;
       target.meaning = meaning;
       target.example = example;
-      showToast("단어를 수정했습니다.");
+      successMessage = "단어를 수정했습니다.";
     }
   } else {
     state.words.unshift({ id: createId(), word, meaning, example, createdAt: Date.now() });
-    showToast("단어를 저장했습니다.");
   }
 
-  saveWords();
+  try {
+    await saveWords();
+  } catch {
+    state.words = previousWords;
+    rebuildDuplicateIndexes();
+    showToast("저장하지 못했습니다. 저장공간을 확인하세요.");
+    return;
+  }
   resetStudySession();
   clearForm();
   render();
+  showToast(successMessage);
 }
 
 function editWord(id) {
@@ -287,20 +347,29 @@ function editWord(id) {
   elements.editBadge.hidden = false;
   elements.cancelEditButton.hidden = false;
   elements.saveButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>수정';
+  updateDuplicateWarnings();
   elements.wordInput.focus();
 }
 
-function deleteWord(id) {
+async function deleteWord(id) {
   const target = state.words.find((item) => item.id === id);
   if (!target) return;
 
   const confirmed = confirm(`'${target.word}' 단어를 삭제할까요?`);
   if (!confirmed) return;
 
+  const previousWords = state.words;
   state.words = state.words.filter((item) => item.id !== id);
   resetStudySession();
 
-  saveWords();
+  try {
+    await saveWords();
+  } catch {
+    state.words = previousWords;
+    rebuildDuplicateIndexes();
+    showToast("삭제 내용을 저장하지 못했습니다.");
+    return;
+  }
   clearForm();
   render();
   showToast("단어를 삭제했습니다.");
@@ -382,7 +451,7 @@ function exportWords() {
 function importWords(file) {
   const reader = new FileReader();
 
-  reader.addEventListener("load", () => {
+  reader.addEventListener("load", async () => {
     try {
       const parsed = JSON.parse(String(reader.result));
       const sourceWords = Array.isArray(parsed) ? parsed : parsed.words;
@@ -396,7 +465,7 @@ function importWords(file) {
       imported.forEach((item) => byWord.set(item.word.toLocaleLowerCase("az"), item));
       state.words = Array.from(byWord.values());
 
-      saveWords();
+      await saveWords();
       resetStudySession();
       render();
       showToast(`${imported.length}개 단어를 가져왔습니다.`);
@@ -470,6 +539,8 @@ function registerServiceWorker() {
 }
 
 elements.wordForm.addEventListener("submit", upsertWord);
+elements.wordInput.addEventListener("input", updateDuplicateWarnings);
+elements.meaningInput.addEventListener("input", updateDuplicateWarnings);
 elements.cancelEditButton.addEventListener("click", () => {
   clearForm();
   showToast("수정을 취소했습니다.");
@@ -490,9 +561,16 @@ elements.fileInput.addEventListener("change", () => {
   elements.fileInput.value = "";
 });
 
-loadWords();
-render();
-registerServiceWorker();
+async function initializeApp() {
+  elements.saveButton.disabled = true;
+  await loadWords();
+  updateDuplicateWarnings();
+  render();
+  registerServiceWorker();
+  elements.saveButton.disabled = false;
+}
+
+initializeApp();
 
 
 
